@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import torch
 
 from algos.ddnm import DDNM
+from algos.DICE import DICE
 from algos.diffpir import DiffPIR
 from algos.dps import DPS
 from algos.Method import Method
@@ -169,10 +170,32 @@ def main(opt):
             transpose_pass=inverse_model.transpose_pass,
         )
 
+    elif opt.algo == "DICE":
+        diff = DICE(
+            device=device,
+            img_size=opt.image_size,
+            noise_steps=1000,
+            schedule_name="cosine",
+            channels=1,
+            rho=opt.dice_rho,
+            mu=opt.dice_mu,
+            skip_type=opt.skip_type,
+            iter_num=opt.iter_num,
+        )
+
+        reconstruction = diff.sample(
+            model=net,
+            y=y,
+            forward_pass=inverse_model.forward_pass,
+            transpose_pass=inverse_model.transpose_pass,
+            ground_truth=GT,
+            track_metrics=opt.plot_metrics == "True",
+        )
+
     elif opt.algo == "FBP":
         reconstruction = inverse_model.pseudoinverse_cgls(y)
     else:
-        raise ValueError("Invalid algorithm specified. Choose from 'DPS', 'DDNM', 'DiffPIR', 'PnP_FISTA', 'FBP', or 'Method'.")
+        raise ValueError("Invalid algorithm specified. Choose from 'DPS', 'DDNM', 'DiffPIR', 'PnP_FISTA', 'FBP', 'DICE', or 'Method'.")
 
     # ############################# METRICS ############################
 
@@ -308,7 +331,7 @@ if __name__ == "__main__":
         "--algo",
         type=str,
         default="Method",
-        choices=["DPS", "DDNM", "DiffPIR", "PnP_FISTA", "FBP", "Method"],
+        choices=["DPS", "DDNM", "DiffPIR", "PnP_FISTA", "FBP", "DICE", "Method"],
     )
 
     ####################### DDNM PARAMS ########################
@@ -331,6 +354,11 @@ if __name__ == "__main__":
 
     p.add_argument("--CG_iters_diffpir", type=int, default=20)
     p.add_argument("--noise_level_img", type=float, default=0.0)
+
+    ###################### DICE PARAMS #########################
+
+    p.add_argument("--dice_rho", type=float, default=0.9, help="DICE rho parameter")
+    p.add_argument("--dice_mu", type=float, default=0.1, help="DICE mu (relaxation) parameter")
 
     ###################### PnP-FISTA PARAMS #########################
     p.add_argument(
