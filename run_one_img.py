@@ -188,6 +188,8 @@ def main(opt):
             y=y,
             forward_pass=inverse_model.forward_pass,
             transpose_pass=inverse_model.transpose_pass,
+            CG_iter=opt.dice_cg_iter,
+            CE_iter=opt.dice_ce_iter,
             ground_truth=GT,
             track_metrics=opt.plot_metrics == "True",
         )
@@ -359,6 +361,8 @@ if __name__ == "__main__":
 
     p.add_argument("--dice_rho", type=float, default=0.9, help="DICE rho parameter")
     p.add_argument("--dice_mu", type=float, default=0.1, help="DICE mu (relaxation) parameter")
+    p.add_argument("--dice_cg_iter", type=int, default=20, help="DICE conjugate gradient iterations")
+    p.add_argument("--dice_ce_iter", type=int, default=10, help="DICE consensus equilibrium iterations")
 
     ###################### PnP-FISTA PARAMS #########################
     p.add_argument(
