@@ -19,8 +19,13 @@ from utils.CT_dataset import LoDoPaB
 
 def train(args):
 
-    path_name = f"e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr}_seed_{args.seed}_img_{args.image_size}_schedule_{args.schedule_name}_gpu_{args.gpu_id}_c_{args.channels}_si_{args.save_img}"
+    path_name = (
+        f"e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr}_seed_{args.seed}_img_{args.image_size}_schedule_{args.schedule_name}_gpu_{args.gpu_id}_c_{args.channels}_si_{args.save_img}"
+    )
+    if args.use_spectral_norm:
+        path_name = f"{path_name}_sn_pi{args.spectral_norm_power_iters}"
     args.save_path = os.path.join(args.save_path, path_name)
+    run_name = os.path.basename(args.save_path)
     images_path, model_path, metrics_path = save_metrics(args.save_path)
 
     # Create checkpoint directory
@@ -36,7 +41,7 @@ def train(args):
     logging.info(f"Starting training with parameters: {args}")
 
     wandb.login(key="b879bf20f3c31bfcf13289e363f4d3394f7d7671")
-    wandb.init(project=args.project_name, name=path_name, config=args)
+    wandb.init(project=args.project_name, name=run_name, config=args)
 
     device = args.device
 
@@ -46,7 +51,15 @@ def train(args):
         im_size=args.image_size,
     ).get_loaders()
 
-    model = create_model(image_size=args.image_size, num_channels=64, num_res_blocks=3, input_channels=args.channels).to(device)
+    model = create_model(
+        image_size=args.image_size,
+        num_channels=64,
+        num_res_blocks=3,
+        input_channels=args.channels,
+        use_spectral_norm=args.use_spectral_norm,
+        spectral_norm_power_iters=args.spectral_norm_power_iters,
+        spectral_norm_eps=args.spectral_norm_eps,
+    ).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     mse = nn.MSELoss()
     diffusion = Diffusion(
@@ -169,6 +182,24 @@ def launch():
     )
 
     parser.add_argument("--gpu_id", type=str, default="0")
+    parser.add_argument(
+        "--use_spectral_norm",
+        type=bool,
+        default=True,
+        help="Apply spectral normalization to Conv/Linear layers.",
+    )
+    parser.add_argument(
+        "--spectral_norm_power_iters",
+        type=int,
+        default=1,
+        help="Power iterations for spectral normalization.",
+    )
+    parser.add_argument(
+        "--spectral_norm_eps",
+        type=float,
+        default=1e-12,
+        help="Epsilon for spectral normalization.",
+    )
 
     args = parser.parse_args()
     args.device = f"cuda:{args.gpu_id}"

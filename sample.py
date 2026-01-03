@@ -10,7 +10,19 @@ from guided_diffusion.script_util import create_model
 path = "weights/nullspace_finetune/nullspace_ft_e_100_bs_4_lr_0.0003_seed_7_img_256_schedule_cosine_sr_0.16666666666666666/checkpoints/latest.pth.tar"
 
 
-model = create_model(image_size=256,num_channels=64,num_res_blocks=3, input_channels=1).to('cuda')
+use_spectral_norm = False
+spectral_norm_power_iters = 1
+spectral_norm_eps = 1e-12
+
+model = create_model(
+    image_size=256,
+    num_channels=64,
+    num_res_blocks=3,
+    input_channels=1,
+    use_spectral_norm=use_spectral_norm,
+    spectral_norm_power_iters=spectral_norm_power_iters,
+    spectral_norm_eps=spectral_norm_eps,
+).to("cuda")
 diff = Diffusion(device="cuda", img_size=256, noise_steps=1000, schedule_name="cosine")
 
 checkpoint = torch.load(path, map_location="cuda")

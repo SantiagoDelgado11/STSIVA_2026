@@ -31,7 +31,15 @@ def main(opt):
     # ############################## MODEL ############################
 
     ckpt = torch.load(opt.weights, map_location=device, weights_only=True)
-    net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=1).to("cuda")
+    net = create_model(
+        image_size=opt.image_size,
+        num_channels=64,
+        num_res_blocks=3,
+        input_channels=1,
+        use_spectral_norm=opt.use_spectral_norm,
+        spectral_norm_power_iters=opt.spectral_norm_power_iters,
+        spectral_norm_eps=opt.spectral_norm_eps,
+    ).to("cuda")
     net.load_state_dict(ckpt["model_state"])
     net.eval()
 
@@ -317,6 +325,23 @@ if __name__ == "__main__":
         default="False",
         choices=["True", "False"],
         help="Plot PSNR, SSIM, consistency, disagreement and fixed point error during sampling",
+    )
+    p.add_argument(
+        "--use_spectral_norm",
+        action="store_true",
+        help="Apply spectral normalization to Conv/Linear layers.",
+    )
+    p.add_argument(
+        "--spectral_norm_power_iters",
+        type=int,
+        default=1,
+        help="Power iterations for spectral normalization.",
+    )
+    p.add_argument(
+        "--spectral_norm_eps",
+        type=float,
+        default=1e-12,
+        help="Epsilon for spectral normalization.",
     )
 
     ################# SAMPLING / ALGO PARAMS #################

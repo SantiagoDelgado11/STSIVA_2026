@@ -4,6 +4,7 @@ import inspect
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
 from .unet import SuperResModel, UNetModel, EncoderUNetModel
+from .nn import apply_spectral_norm
 
 NUM_CLASSES = 1000
 
@@ -95,6 +96,9 @@ def create_model_and_diffusion(
     resblock_updown,
     use_fp16,
     use_new_attention_order,
+    use_spectral_norm=False,
+    spectral_norm_power_iters=1,
+    spectral_norm_eps=1e-12,
 ):
     model = create_model(
         image_size,
@@ -113,6 +117,9 @@ def create_model_and_diffusion(
         resblock_updown=resblock_updown,
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
+        use_spectral_norm=use_spectral_norm,
+        spectral_norm_power_iters=spectral_norm_power_iters,
+        spectral_norm_eps=spectral_norm_eps,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -145,6 +152,9 @@ def create_model(
     use_fp16=False,
     use_new_attention_order=False,
     input_channels=1,
+    use_spectral_norm=False,
+    spectral_norm_power_iters=1,
+    spectral_norm_eps=1e-12,
 ):
     if channel_mult == "":
         if image_size == 512:
@@ -164,7 +174,7 @@ def create_model(
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
-    return UNetModel(
+    model = UNetModel(
         image_size=image_size,
         in_channels=input_channels,
         model_channels=num_channels,
@@ -183,6 +193,13 @@ def create_model(
         resblock_updown=resblock_updown,
         use_new_attention_order=use_new_attention_order,
     )
+    if use_spectral_norm:
+        apply_spectral_norm(
+            model,
+            n_power_iterations=spectral_norm_power_iters,
+            eps=spectral_norm_eps,
+        )
+    return model
 
 
 def create_classifier_and_diffusion(

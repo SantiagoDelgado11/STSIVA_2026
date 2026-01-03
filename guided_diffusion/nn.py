@@ -6,6 +6,7 @@ import math
 
 import torch as th
 import torch.nn as nn
+from torch.nn.utils import spectral_norm
 
 
 
@@ -69,12 +70,12 @@ def update_ema(target_params, source_params, rate=0.99):
         targ.detach().mul_(rate).add_(src, alpha=1 - rate)
 
 
-def zero_module(module):
+def zero_module(module, scale=1e-3):
     """
-    Zero out the parameters of a module and return it.
+    Initialize module parameters near zero without forcing exact zeros.
     """
     for p in module.parameters():
-        p.detach().zero_()
+        p.detach().mul_(scale)
     return module
 
 
@@ -84,6 +85,18 @@ def scale_module(module, scale):
     """
     for p in module.parameters():
         p.detach().mul_(scale)
+    return module
+
+
+def apply_spectral_norm(module, n_power_iterations=1, eps=1e-12):
+    """
+    Recursively apply spectral normalization to Conv/Linear layers.
+    """
+    for _, child in module.named_children():
+        apply_spectral_norm(child, n_power_iterations=n_power_iterations, eps=eps)
+    if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
+        if not hasattr(module, "weight_orig"):
+            spectral_norm(module, n_power_iterations=n_power_iterations, eps=eps)
     return module
 
 
