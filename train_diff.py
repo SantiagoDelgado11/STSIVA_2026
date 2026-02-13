@@ -14,7 +14,8 @@ from utils.utils import (
     cleanup_old_checkpoints,
 )
 from guided_diffusion.script_util import create_model
-from utils.CT_dataset import LoDoPaB
+from torchvision import datasets
+from torch.utils.data import DataLoader
 
 
 def train(args):
@@ -45,11 +46,25 @@ def train(args):
 
     device = args.device
 
-    train_loader, _, _ = LoDoPaB(
+    transform = transforms.Compose([
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+    ])
+
+    train_dataset = datasets.CIFAR10(
+        root="./data",
+        train=True,
+        download=True,
+        transform=transform
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=args.batch_size,
-        workers=0,
-        im_size=args.image_size,
-    ).get_loaders()
+        shuffle=True,
+        num_workers=0,
+    )
+
 
     model = create_model(
         image_size=args.image_size,
@@ -83,7 +98,7 @@ def train(args):
         train_loss = AverageMeter()
         data_loop_train = tqdm(enumerate(train_loader), total=len(train_loader), colour="red")
 
-        for _, train_data in data_loop_train:
+        for _, (images, _) in data_loop_train:
             images = train_data
             images = images.to(device)
 
@@ -146,7 +161,7 @@ def launch():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=1000)
-    parser.add_argument("--channels", type=int, default=1)
+    parser.add_argument("--channels", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--save_path", type=str, default="weights/")
     parser.add_argument("--save_img", type=int, default=100, help="Save images every N epochs")
@@ -172,7 +187,7 @@ def launch():
         default=3,
         help="Number of recent checkpoints to keep (default: 3)",
     )
-    parser.add_argument("--image_size", type=int, default=256)
+    parser.add_argument("--image_size", type=int, default=32)
     parser.add_argument(
         "--schedule_name",
         type=str,
