@@ -41,8 +41,8 @@ def train(args):
 
     logging.info(f"Starting training with parameters: {args}")
 
-    wandb.login(key="b879bf20f3c31bfcf13289e363f4d3394f7d7671")
-    wandb.init(project=args.project_name, name=run_name, config=args)
+    # wandb.login(key="wandb_v1_SdRiNu2a3YAdbr415hv6XjljLhX")
+    # wandb.init(project=args.project_name, name=run_name, config=args)
 
     device = args.device
 
@@ -75,8 +75,10 @@ def train(args):
         spectral_norm_power_iters=args.spectral_norm_power_iters,
         spectral_norm_eps=args.spectral_norm_eps,
     ).to(device)
+
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     mse = nn.MSELoss()
+
     diffusion = Diffusion(
         device=device,
         img_size=args.image_size,
@@ -95,11 +97,11 @@ def train(args):
         start_epoch += 1  # Start from the next epoch
 
     for epoch in range(start_epoch, args.epochs):
+        
         train_loss = AverageMeter()
         data_loop_train = tqdm(enumerate(train_loader), total=len(train_loader), colour="red")
 
         for _, (images, _) in data_loop_train:
-            images = train_data
             images = images.to(device)
 
             images = images * 2 - 1
@@ -147,13 +149,13 @@ def train(args):
             sampled_images = diffusion.sample(model, n=1)
             save_images(sampled_images, f"{images_path}/epoch_{epoch}_sampled.png")
 
-        wandb.log(
-            {
-                "epoch": epoch,
-                "sampled_images": (wandb.Image(sampled_images) if (epoch + 1) % args.save_img == 0 else None),
-                "train_loss": train_loss.avg,
-            }
-        )
+        # wandb.log(
+        #     {
+        #         "epoch": epoch,
+        #         "sampled_images": (wandb.Image(sampled_images) if (epoch + 1) % args.save_img == 0 else None),
+        #         "train_loss": train_loss.avg,
+        #     }
+        # )
 
 
 def launch():
@@ -162,7 +164,7 @@ def launch():
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--channels", type=int, default=3)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--save_path", type=str, default="weights/")
     parser.add_argument("--save_img", type=int, default=100, help="Save images every N epochs")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
