@@ -59,7 +59,7 @@ class Diffusion:
         img_size=256,
         device="cuda",
         schedule_name="linear",
-        channels=1,
+        channels=3,
     ):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
