@@ -15,7 +15,7 @@ class DDNM:
         noise_steps=1000,
         beta_start=1e-4,
         beta_end=0.02,
-        img_size=256,
+        img_size=32,
         device="cuda",
         schedule_name="cosine",
         channels=1,
