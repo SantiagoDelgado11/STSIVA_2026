@@ -7,9 +7,8 @@ import sys
 import os
 
 # Add parent directory to path to allow importing from algos/guided_diffusion
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from algos.ddnm import DDNM
 from algos.diffpir import DiffPIR
 from algos.dps import DPS
 from guided_diffusion.script_util import create_model
