@@ -25,7 +25,7 @@ def main(opt):
     
     # Check if the weights file actually exists, to safely initialize
     if os.path.exists(opt.weights):
-        ckpt = torch.load(opt.weights, map_location=device, weights_only=True)
+        ckpt = torch.load(opt.weights, map_location=device, weights_only=False)
         net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=3).to(device)
         net.load_state_dict(ckpt["model_state"])
         print(f"Loaded weights from {opt.weights}")
