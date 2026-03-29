@@ -10,6 +10,9 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.callbacks import BaseCallback
 
+import wandb
+from wandb.integration.sb3 import WandbCallback
+
 class MetricsLoggerCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(MetricsLoggerCallback, self).__init__(verbose)
@@ -125,12 +128,29 @@ def main(opt):
         learning_rate=opt.lr,
         n_steps=opt.n_steps,
         batch_size=opt.batch_size,
+        tensorboard_log=f"{opt.save_dir}/tensorboard",
         verbose=1,
         device=device
     )
 
+    print("Initializing WandB with Hardcoded API Key...")
+    wandb.login(key="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")
+    run = wandb.init(
+        project="STSIVA AGENTS",
+        name="ppo_meta_controller",
+        config=vars(opt),
+        sync_tensorboard=True,
+        save_code=True,
+    )
+
     print("Starting Training Loop...")
-    model.learn(total_timesteps=opt.total_timesteps, progress_bar=True, callback=MetricsLoggerCallback())
+    model.learn(
+        total_timesteps=opt.total_timesteps, 
+        progress_bar=True, 
+        callback=[MetricsLoggerCallback(), WandbCallback(model_save_path=opt.save_dir, verbose=2)]
+    )
+    
+    run.finish()
     
     print("Saving Model...")
     os.makedirs(opt.save_dir, exist_ok=True)
