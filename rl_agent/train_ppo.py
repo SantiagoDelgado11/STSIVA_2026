@@ -1,14 +1,16 @@
+import sys
+import os
+
+# Add parent directory to path early to allow importing from local modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import argparse
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-import sys
-import os
-
-# Add parent directory to path to allow importing from algos/guided_diffusion
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Local imports
+from algos.ddnm import DDNM
 from algos.diffpir import DiffPIR
 from algos.dps import DPS
 from guided_diffusion.script_util import create_model
@@ -24,7 +26,7 @@ def main(opt):
     
     # Check if the weights file actually exists, to safely initialize
     if os.path.exists(opt.weights):
-        ckpt = torch.load(opt.weights, map_location=device, weights_only=False)
+        ckpt = torch.load(opt.weights, map_location=device, weights_only=False) # weights_only=False para evitar errores de dicts
         net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=3).to(device)
         net.load_state_dict(ckpt["model_state"])
         print(f"Loaded weights from {opt.weights}")
@@ -33,13 +35,9 @@ def main(opt):
         net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=3).to(device)
         
     net.eval()
-    for param in net.parameters():
-        param.requires_grad = False
 
     print("Initializing SPC Model and Algorithms...")
     inverse_model = SPCModel(im_size=opt.image_size, compression_ratio=opt.sampling_ratio).to(device)
-    for param in inverse_model.parameters():
-        param.requires_grad = False
 
     ddnm_params = DDNM(
         device=device,
@@ -112,7 +110,6 @@ def main(opt):
     os.makedirs(opt.save_dir, exist_ok=True)
     model.save(f"{opt.save_dir}/ppo_meta_controller")
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", type=str, default="weights/e_1000_bs_64_lr_0.0003_seed_2_img_32_schedule_cosine_gpu_0_c_3_si_100/checkpoints/latest.pth.tar")
@@ -128,10 +125,10 @@ if __name__ == "__main__":
     parser.add_argument("--noise_level_img", type=float, default=0.0)
     
     # RL params
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--n_steps", type=int, default=1000, help="Steps before updating PPO")
+    parser.add_argument("--lr", type=float, default=3e-5)
+    parser.add_argument("--n_steps", type=int, default=1024, help="Steps before updating PPO")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--total_timesteps", type=int, default=50000)
+    parser.add_argument("--total_timesteps", type=int, default=100000)
     parser.add_argument("--save_dir", type=str, default="rl_agent/checkpoints")
     
     opt = parser.parse_args()
