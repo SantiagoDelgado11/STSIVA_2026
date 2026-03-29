@@ -134,7 +134,7 @@ class DiffusionMDPEnv(gym.Env):
         self.current_t -= 1
         
         # Calculate Reward
-        reward_tensor = self.reward_calculator.calculate_reward(self.current_xt, next_xt, self.ground_truth)
+        reward_tensor, psnr, ssim = self.reward_calculator.calculate_reward(self.current_xt, next_xt, self.ground_truth)
         reward = reward_tensor.item()
         
         self.current_xt = next_xt
@@ -144,7 +144,9 @@ class DiffusionMDPEnv(gym.Env):
         
         info = {
             "action": action,
-            "reward": reward
+            "reward": reward,
+            "psnr": psnr,
+            "ssim": ssim
         }
         
         return self._get_obs(), reward, done, truncated, info

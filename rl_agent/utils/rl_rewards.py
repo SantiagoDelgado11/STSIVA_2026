@@ -15,7 +15,7 @@ class RewardCalculator:
         img_norm = (img + 1.0) / 2.0
         return img_norm.clamp(0.0, 1.0)
 
-    def calculate_reward(self, x_current: torch.Tensor, x_next: torch.Tensor, ground_truth: torch.Tensor) -> torch.Tensor:
+    def calculate_reward(self, x_current: torch.Tensor, x_next: torch.Tensor, ground_truth: torch.Tensor) -> tuple[torch.Tensor, float, float]:
         """
         Computes the incremental reward.
         Reward = (PSNR_next - PSNR_current) + lambda * (SSIM_next - SSIM_current)
@@ -38,4 +38,4 @@ class RewardCalculator:
             # e.g., weight 50 scales a 0.02 SSIM improvement to 1.0. 
             reward = delta_psnr + 50.0 * delta_ssim
             
-        return reward
+        return reward, psnr_next.item(), ssim_next.item()

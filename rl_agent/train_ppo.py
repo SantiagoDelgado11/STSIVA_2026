@@ -8,6 +8,26 @@ import argparse
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.callbacks import BaseCallback
+
+class MetricsLoggerCallback(BaseCallback):
+    def __init__(self, verbose=0):
+        super(MetricsLoggerCallback, self).__init__(verbose)
+
+    def _on_step(self) -> bool:
+        # Extraer variables dinámicas del bucle de SB3
+        infos = self.locals.get("infos", [{}])
+        
+        info = infos[0]
+            
+        # Retroalimentación en la consola
+        if self.n_calls % 100 == 0:
+            psnr = info.get("psnr", 0.0)
+            ssim = info.get("ssim", 0.0)
+            
+            print(f"🔄 [Paso {self.n_calls}] PSNR Actual: {psnr:.2f} dB | SSIM Actual: {ssim:.4f}")
+            
+        return True
 
 # Local imports
 from algos.ddnm import DDNM
@@ -24,14 +44,20 @@ def main(opt):
     
     print("Loading Pretrained U-Net Model...")
     
+    # Asegurar que la ruta a los pesos sea absoluta (relativa a la raíz del proyecto)
+    weights_path = opt.weights
+    if not os.path.isabs(weights_path):
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        weights_path = os.path.join(project_root, weights_path)
+    
     # Check if the weights file actually exists, to safely initialize
-    if os.path.exists(opt.weights):
-        ckpt = torch.load(opt.weights, map_location=device, weights_only=False) # weights_only=False para evitar errores de dicts
+    if os.path.exists(weights_path):
+        ckpt = torch.load(weights_path, map_location=device, weights_only=False) # weights_only=False para evitar errores de dicts
         net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=3).to(device)
         net.load_state_dict(ckpt["model_state"])
-        print(f"Loaded weights from {opt.weights}")
+        print(f"Loaded weights from {weights_path}")
     else:
-        print(f"Weights file not found at {opt.weights}. Initializing un-trained U-Net for structural test.")
+        print(f"Weights file not found at {weights_path}. Initializing un-trained U-Net for structural test.")
         net = create_model(image_size=opt.image_size, num_channels=64, num_res_blocks=3, input_channels=3).to(device)
         
     net.eval()
@@ -104,7 +130,7 @@ def main(opt):
     )
 
     print("Starting Training Loop...")
-    model.learn(total_timesteps=opt.total_timesteps, progress_bar=True)
+    model.learn(total_timesteps=opt.total_timesteps, progress_bar=True, callback=MetricsLoggerCallback())
     
     print("Saving Model...")
     os.makedirs(opt.save_dir, exist_ok=True)
@@ -125,10 +151,10 @@ if __name__ == "__main__":
     parser.add_argument("--noise_level_img", type=float, default=0.0)
     
     # RL params
-    parser.add_argument("--lr", type=float, default=3e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--n_steps", type=int, default=1024, help="Steps before updating PPO")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--total_timesteps", type=int, default=100000)
+    parser.add_argument("--total_timesteps", type=int, default=50000)
     parser.add_argument("--save_dir", type=str, default="rl_agent/checkpoints")
     
     opt = parser.parse_args()
