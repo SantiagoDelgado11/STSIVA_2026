@@ -40,8 +40,8 @@ class DiffusionFeatureExtractor(BaseFeaturesExtractor):
             dummy_img = torch.cat([dummy_xt, dummy_y], dim=1)
             n_flatten = self.cnn(dummy_img).shape[1]
             
-        # Action embedding: 4 tokens (-1, 0, 1, 2) shifted by +1 -> (0, 1, 2, 3)
-        self.action_embed = nn.Embedding(4, 16)
+        # Action embedding: 4 tokens translated to one-hot by SB3, projected to 16 dims
+        self.action_embed = nn.Linear(4, 16)
         
         # Scalars embedding: Time (1) + Noise (1) + Var (1) + ActEmb (16) = 19
         self.scalars_mlp = nn.Sequential(
@@ -65,9 +65,9 @@ class DiffusionFeatureExtractor(BaseFeaturesExtractor):
         noise_level = observations["noise_level"]
         img_var = observations["img_variance"]
         
-        # Asegurar tipo entero y desplazar -1 a 0 para el embedding
-        prev_act = observations["prev_action"].long() + 1
-        act_emb = self.action_embed(prev_act).flatten(start_dim=1)
+        # SB3 automatically converts Discrete spaces in Dicts to one-hot floats
+        # Re-allow flattening to counteract SB3's RolloutBuffer adding an extra dimension (batch, 1, 4) during train vs collect_rollouts
+        act_emb = self.action_embed(observations["prev_action"]).flatten(start_dim=1)
         
         # Forward pass for spatial inputs
         x_cat = torch.cat([x_t, y], dim=1)

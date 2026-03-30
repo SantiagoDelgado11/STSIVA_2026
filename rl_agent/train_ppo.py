@@ -126,8 +126,15 @@ def main(opt):
     # Wrap in DummyVecEnv for SB3
     vec_env = DummyVecEnv([lambda: env])
     
-    # Normalización de Recompensas para estabilizar el Crítico
-    vec_env = VecNormalize(vec_env, norm_obs=False, norm_reward=True, clip_reward=10.0)
+    # Normalización de Entorno: estabilizar Crítico y reducir varianza de PPO
+    vec_env = VecNormalize(
+        vec_env, 
+        norm_obs=True, 
+        norm_reward=True, 
+        clip_obs=10.0, 
+        clip_reward=10.0,
+        norm_obs_keys=["image_xt", "image_y", "time", "noise_level", "img_variance"]
+    )
 
     print("Initializing PPO Agent...")
     policy_kwargs = dict(
@@ -143,7 +150,7 @@ def main(opt):
         learning_rate=linear_schedule(opt.lr), # Decaimiento lineal de LR
         n_steps=opt.n_steps,
         batch_size=opt.batch_size,
-        ent_coef=0.05, # Entropía robusta a solicitud del usuario para exploración extendida
+        ent_coef=0.01, # Entropía ajustada (reducida) para promover estabilización
         normalize_advantage=True, # Explícito: Normalización de ventajas por batch
         tensorboard_log=f"{opt.save_dir}/tensorboard",
         verbose=1,
@@ -190,8 +197,8 @@ if __name__ == "__main__":
     
     # RL params
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--n_steps", type=int, default=1024, help="Steps before updating PPO")
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--n_steps", type=int, default=4096, help="Steps before updating PPO")
+    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--total_timesteps", type=int, default=1024000)
     parser.add_argument("--save_dir", type=str, default="rl_agent/checkpoints")
     

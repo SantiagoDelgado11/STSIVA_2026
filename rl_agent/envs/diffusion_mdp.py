@@ -54,7 +54,7 @@ class DiffusionMDPEnv(gym.Env):
                 "time": spaces.Box(low=0, high=noise_steps, shape=(1,), dtype=np.float32),
                 "noise_level": spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
                 "img_variance": spaces.Box(low=0.0, high=np.inf, shape=(1,), dtype=np.float32),
-                "prev_action": spaces.Box(low=-1, high=2, shape=(1,), dtype=np.int64),
+                "prev_action": spaces.Discrete(4),
             }
         )
 
@@ -108,7 +108,7 @@ class DiffusionMDPEnv(gym.Env):
             "time": np.array([self.current_t], dtype=np.float32),
             "noise_level": np.array([noise_level], dtype=np.float32),
             "img_variance": np.array([img_var], dtype=np.float32),
-            "prev_action": np.array([self.prev_action], dtype=np.int64)
+            "prev_action": int(self.prev_action + 1)
         }
         return obs
 
