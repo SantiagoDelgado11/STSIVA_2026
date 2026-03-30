@@ -52,6 +52,9 @@ class DiffusionMDPEnv(gym.Env):
                 "image_xt": spaces.Box(low=-np.inf, high=np.inf, shape=(3, img_size, img_size), dtype=np.float32),
                 "image_y": spaces.Box(low=-np.inf, high=np.inf, shape=(3, img_size, img_size), dtype=np.float32),
                 "time": spaces.Box(low=0, high=noise_steps, shape=(1,), dtype=np.float32),
+                "noise_level": spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
+                "img_variance": spaces.Box(low=0.0, high=np.inf, shape=(1,), dtype=np.float32),
+                "prev_action": spaces.Box(low=-1, high=2, shape=(1,), dtype=np.int64),
             }
         )
 
@@ -67,6 +70,8 @@ class DiffusionMDPEnv(gym.Env):
         self.current_y = None
         self.ground_truth = None
         self.back_projected_y = None
+        self.prev_action = -1
+        self.consecutive_actions = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -86,14 +91,24 @@ class DiffusionMDPEnv(gym.Env):
         
         self.current_t = self.noise_steps - 1
         self.current_xt = torch.randn_like(self.ground_truth, device=self.device)
+        self.prev_action = -1
+        self.consecutive_actions = 0
 
         return self._get_obs(), {}
 
     def _get_obs(self):
+        # Nivel de ruido simulado como schedule lineal (1.0 = Max noise, 0.0 = Min noise)
+        noise_level = self.current_t / max(1, self.noise_steps - 1)
+        # Varianza global empírica de image_xt como característica comprimida
+        img_var = torch.var(self.current_xt).item()
+
         obs = {
             "image_xt": self.current_xt.squeeze(0).cpu().numpy().astype(np.float32),
             "image_y": self.back_projected_y.squeeze(0).cpu().numpy().astype(np.float32),
-            "time": np.array([self.current_t], dtype=np.float32)
+            "time": np.array([self.current_t], dtype=np.float32),
+            "noise_level": np.array([noise_level], dtype=np.float32),
+            "img_variance": np.array([img_var], dtype=np.float32),
+            "prev_action": np.array([self.prev_action], dtype=np.int64)
         }
         return obs
 
@@ -133,9 +148,27 @@ class DiffusionMDPEnv(gym.Env):
         # Step time
         self.current_t -= 1
         
-        # Calculate Reward
+        # Calculate Base Reward (Dense improvements)
         reward_tensor, psnr, ssim = self.reward_calculator.calculate_reward(self.current_xt, next_xt, self.ground_truth)
-        reward = reward_tensor.item()
+        base_reward = reward_tensor.item()
+        
+        # Action Penalty (Soft Penalty)
+        action_penalty = 0.0
+        if self.prev_action != -1:
+            if action != self.prev_action:
+                # Penalizar saltos erráticos ("chattering") para guiar la exploración
+                action_penalty = -0.05
+                self.consecutive_actions = 1
+            else:
+                self.consecutive_actions += 1
+                # Penalizar estancamiento si un solver no logra mejoras en serie
+                if self.consecutive_actions > 5 and base_reward < 0.01:
+                    action_penalty = -0.1
+        else:
+             self.consecutive_actions = 1
+             
+        self.prev_action = action
+        reward = base_reward + action_penalty
         
         self.current_xt = next_xt
         

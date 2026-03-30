@@ -143,7 +143,7 @@ def main(opt):
         learning_rate=linear_schedule(opt.lr), # Decaimiento lineal de LR
         n_steps=opt.n_steps,
         batch_size=opt.batch_size,
-        ent_coef=0.01, # Aumentado para incentivar la exploración prolongada
+        ent_coef=0.05, # Entropía robusta a solicitud del usuario para exploración extendida
         normalize_advantage=True, # Explícito: Normalización de ventajas por batch
         tensorboard_log=f"{opt.save_dir}/tensorboard",
         verbose=1,

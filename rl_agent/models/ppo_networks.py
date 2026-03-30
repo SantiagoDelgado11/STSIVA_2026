@@ -40,15 +40,18 @@ class DiffusionFeatureExtractor(BaseFeaturesExtractor):
             dummy_img = torch.cat([dummy_xt, dummy_y], dim=1)
             n_flatten = self.cnn(dummy_img).shape[1]
             
-        # Time embedding
-        self.time_mlp = nn.Sequential(
-            nn.Linear(1, 64),
+        # Action embedding: 4 tokens (-1, 0, 1, 2) shifted by +1 -> (0, 1, 2, 3)
+        self.action_embed = nn.Embedding(4, 16)
+        
+        # Scalars embedding: Time (1) + Noise (1) + Var (1) + ActEmb (16) = 19
+        self.scalars_mlp = nn.Sequential(
+            nn.Linear(19, 64),
             nn.ReLU(),
             nn.Linear(64, 64),
             nn.ReLU()
         )
         
-        # Combine image and time features
+        # Combine image and scalar features
         self.fc = nn.Sequential(
             nn.Linear(n_flatten + 64, features_dim),
             nn.ReLU()
@@ -59,16 +62,23 @@ class DiffusionFeatureExtractor(BaseFeaturesExtractor):
         x_t = observations["image_xt"]
         y = observations["image_y"]
         t = observations["time"]
+        noise_level = observations["noise_level"]
+        img_var = observations["img_variance"]
+        
+        # Asegurar tipo entero y desplazar -1 a 0 para el embedding
+        prev_act = observations["prev_action"].long() + 1
+        act_emb = self.action_embed(prev_act).flatten(start_dim=1)
         
         # Forward pass for spatial inputs
         x_cat = torch.cat([x_t, y], dim=1)
         cnn_features = self.cnn(x_cat)
         
-        # Forward pass for time
-        time_features = self.time_mlp(t)
+        # Forward pass for scalars
+        scalars = torch.cat([t, noise_level, img_var, act_emb], dim=1)
+        scalar_features = self.scalars_mlp(scalars)
         
         # Combine and pass through final linear layer
-        combined = torch.cat([cnn_features, time_features], dim=1)
+        combined = torch.cat([cnn_features, scalar_features], dim=1)
         return self.fc(combined)
 
 # Standard SB3 API allows you to just pass CustomFeatureExtractor to policy_kwargs 
