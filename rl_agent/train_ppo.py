@@ -7,8 +7,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.callbacks import BaseCallback
+from typing import Callable
 
 import wandb
 from wandb.integration.sb3 import WandbCallback
@@ -40,6 +41,16 @@ from guided_diffusion.script_util import create_model
 from utils.SPC_model import SPCModel
 from rl_agent.envs.diffusion_mdp import DiffusionMDPEnv
 from rl_agent.models.ppo_networks import DiffusionFeatureExtractor
+
+
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    Decaimiento lineal de la tasa de aprendizaje.
+    progress_remaining va de 1.0 (inicio) a 0.0 (fin).
+    """
+    def func(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return func
 
 
 def main(opt):
@@ -114,20 +125,26 @@ def main(opt):
     
     # Wrap in DummyVecEnv for SB3
     vec_env = DummyVecEnv([lambda: env])
+    
+    # Normalización de Recompensas para estabilizar el Crítico
+    vec_env = VecNormalize(vec_env, norm_obs=False, norm_reward=True, clip_reward=10.0)
 
     print("Initializing PPO Agent...")
     policy_kwargs = dict(
         features_extractor_class=DiffusionFeatureExtractor,
         features_extractor_kwargs=dict(features_dim=128),
+        ortho_init=True, # Explícito: Inicialización ortogonal para mejor estabilidad temprana
     )
     
     model = PPO(
         "MultiInputPolicy",
         vec_env,
         policy_kwargs=policy_kwargs,
-        learning_rate=opt.lr,
+        learning_rate=linear_schedule(opt.lr), # Decaimiento lineal de LR
         n_steps=opt.n_steps,
         batch_size=opt.batch_size,
+        ent_coef=0.01, # Aumentado para incentivar la exploración prolongada
+        normalize_advantage=True, # Explícito: Normalización de ventajas por batch
         tensorboard_log=f"{opt.save_dir}/tensorboard",
         verbose=1,
         device=device
@@ -152,9 +169,10 @@ def main(opt):
     
     run.finish()
     
-    print("Saving Model...")
+    print("Saving Model and VecNormalize statistics...")
     os.makedirs(opt.save_dir, exist_ok=True)
     model.save(f"{opt.save_dir}/ppo_meta_controller")
+    vec_env.save(f"{opt.save_dir}/vec_normalize.pkl")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -174,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--n_steps", type=int, default=1024, help="Steps before updating PPO")
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--total_timesteps", type=int, default=50000)
+    parser.add_argument("--total_timesteps", type=int, default=1024000)
     parser.add_argument("--save_dir", type=str, default="rl_agent/checkpoints")
     
     opt = parser.parse_args()
