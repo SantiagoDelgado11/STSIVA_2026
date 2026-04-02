@@ -19,17 +19,31 @@ class MetricsLoggerCallback(BaseCallback):
         super(MetricsLoggerCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
-        # Extraer variables dinámicas del bucle de SB3
+        # Extraer variables dinámicas del entorno en este paso
         infos = self.locals.get("infos", [{}])
-        
         info = infos[0]
             
-        # Retroalimentación en la consola
-        if self.n_calls % 100 == 0:
-            psnr = info.get("psnr", 0.0)
-            ssim = info.get("ssim", 0.0)
+        # Extraer la acción que el agente acaba de tomar (0 a 4) estableciendo un fallback
+        actions = self.locals.get("actions")
+        selected_index = int(actions[0]) if actions is not None else 0
+        
+        # Extraer las métricas de calidad que provee el entorno
+        psnr_agent = info.get("psnr", 0.0)
+        ssim_agent = info.get("ssim", 0.0)
+        psnr_baseline = info.get("psnr_baseline", 0.0)
+        
+        # Enviar las estadísticas a Weights & Biases de forma eficiente
+        wandb.log({
+            "Metrics/PSNR_Agent": psnr_agent, 
+            "Metrics/SSIM_Agent": ssim_agent,
+            "Metrics/PSNR_Baseline": psnr_baseline,
+            "Actions/Selected_Index": selected_index,
+            "Actions/Action_Distribution": wandb.Histogram([selected_index]),
+        })
             
-            print(f"🔄 [Paso {self.n_calls}] PSNR Actual: {psnr:.2f} dB | SSIM Actual: {ssim:.4f}")
+        # Opcional: Mantener pequeña retroalimentación en la consola
+        if self.n_calls % 100 == 0:
+            print(f"🔄 [Paso {self.n_calls}] PSNR: {psnr_agent:.2f} dB | SSIM: {ssim_agent:.4f} | Acción: {selected_index}")
             
         return True
 
@@ -160,7 +174,7 @@ def main(opt):
     print("Initializing WandB with Hardcoded API Key...")
     wandb.login(key="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")
     run = wandb.init(
-        project="STSIVA AGENTS",
+        project="STSIVA_2026",
         name="ppo_meta_controller",
         config=vars(opt),
         sync_tensorboard=True,
@@ -174,7 +188,7 @@ def main(opt):
         callback=[MetricsLoggerCallback(), WandbCallback(model_save_path=opt.save_dir, verbose=2)]
     )
     
-    run.finish()
+    wandb.finish()
     
     print("Saving Model and VecNormalize statistics...")
     os.makedirs(opt.save_dir, exist_ok=True)
