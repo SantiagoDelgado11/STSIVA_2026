@@ -49,7 +49,7 @@ class DiffusionMDPEnv(gym.Env):
         # Note: image_xt and image_y are back-projected views 
         self.observation_space = spaces.Dict(
             {
-                "image_xt": spaces.Box(low=-np.inf, high=np.inf, shape=(3, img_size, img_size), dtype=np.float32),
+                "image_xt": spaces.Box(low=-np.inf, high=np.inf, shape=(4, img_size, img_size), dtype=np.float32),
                 "image_y": spaces.Box(low=-np.inf, high=np.inf, shape=(3, img_size, img_size), dtype=np.float32),
                 "time": spaces.Box(low=0, high=noise_steps, shape=(1,), dtype=np.float32),
                 "noise_level": spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
@@ -93,17 +93,21 @@ class DiffusionMDPEnv(gym.Env):
         self.current_xt = torch.randn_like(self.ground_truth, device=self.device)
         self.prev_action = -1
         self.consecutive_actions = 0
+        self.current_psnr = None # <-- Reinicio explícito de la métrica de mejora
 
         return self._get_obs(), {}
 
     def _get_obs(self):
-        # Nivel de ruido simulado como schedule lineal (1.0 = Max noise, 0.0 = Min noise)
         noise_level = self.current_t / max(1, self.noise_steps - 1)
-        # Varianza global empírica de image_xt como característica comprimida
         img_var = torch.var(self.current_xt).item()
 
+        # Inyectando el tiempo como un plano uniforme adherido a la imagen de entrada a la CNN (C=4)
+        image_xt_np = self.current_xt.squeeze(0).cpu().numpy().astype(np.float32)
+        time_channel = np.full((1, self.img_size, self.img_size), noise_level, dtype=np.float32)
+        image_xt_with_time = np.concatenate([image_xt_np, time_channel], axis=0) # shape (4, H, W)
+
         obs = {
-            "image_xt": self.current_xt.squeeze(0).cpu().numpy().astype(np.float32),
+            "image_xt": image_xt_with_time,
             "image_y": self.back_projected_y.squeeze(0).cpu().numpy().astype(np.float32),
             "time": np.array([self.current_t], dtype=np.float32),
             "noise_level": np.array([noise_level], dtype=np.float32),
@@ -148,9 +152,19 @@ class DiffusionMDPEnv(gym.Env):
         # Step time
         self.current_t -= 1
         
-        # Calculate Base Reward (Dense improvements)
-        reward_tensor, psnr, ssim = self.reward_calculator.calculate_reward(self.current_xt, next_xt, self.ground_truth)
-        base_reward = reward_tensor.item()
+        # 1. CAMBIO A RECOMPENSA DENSA (Diferencial)
+        _, psnr_next, ssim = self.reward_calculator.calculate_reward(self.current_xt, next_xt, self.ground_truth)
+        
+        if getattr(self, "current_psnr", None) is None:
+            # Aproximar PSNR basal de partida usando el clon old_xt temporalmente
+            _, self.current_psnr, _ = self.reward_calculator.calculate_reward(old_xt, old_xt, self.ground_truth)
+            
+        delta_psnr = psnr_next - self.current_psnr
+        self.current_psnr = psnr_next
+        
+        # 2. NORMALIZACIÓN DE RECOMPENSA
+        # Recortamos el delta_psnr para domar los gradientes (PPO colapsaría ante PSNR delta de +8dB de un solo impacto)
+        base_reward = float(np.clip(delta_psnr, -1.0, 1.0))
         
         # Action Penalty (Soft Penalty)
         action_penalty = 0.0
@@ -178,7 +192,7 @@ class DiffusionMDPEnv(gym.Env):
         info = {
             "action": action,
             "reward": reward,
-            "psnr": psnr,
+            "psnr": psnr_next,
             "ssim": ssim
         }
         

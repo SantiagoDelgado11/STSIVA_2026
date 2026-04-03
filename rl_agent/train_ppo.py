@@ -14,37 +14,79 @@ from typing import Callable
 import wandb
 from wandb.integration.sb3 import WandbCallback
 
+from stable_baselines3.common.vec_env import sync_envs_normalization
+
 class MetricsLoggerCallback(BaseCallback):
     def __init__(self, verbose=0):
         super(MetricsLoggerCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
-        # Extraer variables dinámicas del entorno en este paso
         infos = self.locals.get("infos", [{}])
         info = infos[0]
             
-        # Extraer la acción que el agente acaba de tomar (0 a 4) estableciendo un fallback
         actions = self.locals.get("actions")
         selected_index = int(actions[0]) if actions is not None else 0
         
-        # Extraer las métricas de calidad que provee el entorno
-        psnr_agent = info.get("psnr", 0.0)
-        ssim_agent = info.get("ssim", 0.0)
-        psnr_baseline = info.get("psnr_baseline", 0.0)
+        # Extraemos la recompensa instantánea obtenida en el step actual
+        rewards = self.locals.get("rewards")
+        step_reward = float(rewards[0]) if rewards is not None else 0.0
         
-        # Enviar las estadísticas a Weights & Biases de forma eficiente
+        # Registramos las métricas directas de este step en wandb
         wandb.log({
-            "Metrics/PSNR_Agent": psnr_agent, 
-            "Metrics/SSIM_Agent": ssim_agent,
-            "Metrics/PSNR_Baseline": psnr_baseline,
             "Actions/Selected_Index": selected_index,
             "Actions/Action_Distribution": wandb.Histogram([selected_index]),
+            "Train/Reward": step_reward,
         })
             
-        # Opcional: Mantener pequeña retroalimentación en la consola
-        if self.n_calls % 100 == 0:
-            print(f"🔄 [Paso {self.n_calls}] PSNR: {psnr_agent:.2f} dB | SSIM: {ssim_agent:.4f} | Acción: {selected_index}")
+        return True
+
+class CustomEvalCallback(BaseCallback):
+    def __init__(self, eval_env, eval_freq=2000, n_eval_episodes=20, verbose=0):
+        super(CustomEvalCallback, self).__init__(verbose)
+        self.eval_env = eval_env
+        self.eval_freq = eval_freq
+        self.n_eval_episodes = n_eval_episodes
+
+    def _on_step(self) -> bool:
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            # Sincronizar estadísticas de normalización del entreamiento a la evaluación
+            sync_envs_normalization(self.training_env, self.eval_env)
             
+            total_psnr = 0.0
+            total_ssim = 0.0
+            
+            if self.verbose > 0:
+                print(f"\nIniciando evaluación de {self.n_eval_episodes} episodios...")
+                
+            for _ in range(self.n_eval_episodes):
+                obs = self.eval_env.reset()
+                done = False
+                episode_psnr = 0.0
+                episode_ssim = 0.0
+                
+                while not done:
+                    # deterministic=True ayuda a evaluar el rendimiento real de la política
+                    action, _states = self.model.predict(obs, deterministic=True)
+                    obs, reward, done_arr, info_arr = self.eval_env.step(action)
+                    done = done_arr[0]
+                    if done:
+                        episode_psnr = info_arr[0].get("psnr", 0.0)
+                        episode_ssim = info_arr[0].get("ssim", 0.0)
+                        
+                total_psnr += episode_psnr
+                total_ssim += episode_ssim
+                
+            avg_psnr = total_psnr / self.n_eval_episodes
+            avg_ssim = total_ssim / self.n_eval_episodes
+            
+            wandb.log({
+                "Metrics/Eval_PSNR_Average": avg_psnr,
+                "Metrics/Eval_SSIM_Average": avg_ssim,
+            })
+            
+            if self.verbose > 0:
+                print(f"✅ [EVALUACIÓN Pasos {self.n_calls}] PSNR Promedio: {avg_psnr:.2f} | SSIM Promedio: {avg_ssim:.4f}\n")
+                
         return True
 
 # Local imports
@@ -125,8 +167,20 @@ def main(opt):
         zeta=1,
     )
 
-    print("Setting up Environment...")
+    print("Setting up Environments (Train & Eval)...")
     env = DiffusionMDPEnv(
+        unet_model=net,
+        spc_model=inverse_model,
+        ddnm_params=ddnm_params,
+        diffpir_params=diffpir_params,
+        dps_params=dps_params,
+        device=device,
+        noise_steps=opt.noise_steps,
+        img_size=opt.image_size,
+    )
+    
+    # Eval environment (exactamente los mismos parámetros)
+    eval_env = DiffusionMDPEnv(
         unet_model=net,
         spc_model=inverse_model,
         ddnm_params=ddnm_params,
@@ -139,13 +193,25 @@ def main(opt):
     
     # Wrap in DummyVecEnv for SB3
     vec_env = DummyVecEnv([lambda: env])
+    eval_vec_env = DummyVecEnv([lambda: eval_env])
     
-    # Normalización de Entorno: estabilizar Crítico y reducir varianza de PPO
+    # Normalización de Entorno de Entrenamiento
     vec_env = VecNormalize(
         vec_env, 
         norm_obs=True, 
         norm_reward=True, 
         clip_obs=10.0, 
+        clip_reward=10.0,
+        norm_obs_keys=["image_xt", "image_y", "time", "noise_level", "img_variance"]
+    )
+    
+    # Normalización de Entorno de Evaluación (training=False, norm_reward=False vital para evitar fugas estadísticas)
+    eval_vec_env = VecNormalize(
+        eval_vec_env,
+        training=False,
+        norm_obs=True,
+        norm_reward=False,
+        clip_obs=10.0,
         clip_reward=10.0,
         norm_obs_keys=["image_xt", "image_y", "time", "noise_level", "img_variance"]
     )
@@ -185,7 +251,11 @@ def main(opt):
     model.learn(
         total_timesteps=opt.total_timesteps, 
         progress_bar=True, 
-        callback=[MetricsLoggerCallback(), WandbCallback(model_save_path=opt.save_dir, verbose=2)]
+        callback=[
+            MetricsLoggerCallback(), 
+            CustomEvalCallback(eval_env=eval_vec_env, eval_freq=opt.eval_freq, n_eval_episodes=opt.n_eval_episodes, verbose=1),
+            WandbCallback(model_save_path=opt.save_dir, verbose=2)
+        ]
     )
     
     wandb.finish()
@@ -214,6 +284,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_steps", type=int, default=4096, help="Steps before updating PPO")
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--total_timesteps", type=int, default=1024000)
+    parser.add_argument("--eval_freq", type=int, default=2000, help="Frecuencia de evaluación en steps globales")
+    parser.add_argument("--n_eval_episodes", type=int, default=20, help="Número de episodios/imágenes a promediar")
     parser.add_argument("--save_dir", type=str, default="rl_agent/checkpoints")
     
     opt = parser.parse_args()
